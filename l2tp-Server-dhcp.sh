@@ -115,7 +115,6 @@ name = l2tpd
 ppp debug = yes
 pppoptfile = /etc/ppp/options.xl2tpd
 length bit = yes
-max sessions = 1
 EOF
 
 # 配置 /etc/ppp/options.xl2tpd
