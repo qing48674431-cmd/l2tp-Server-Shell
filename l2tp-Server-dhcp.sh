@@ -134,8 +134,8 @@ name l2tpd
 proxyarp
 lcp-echo-interval 30
 lcp-echo-failure 4
-mtu 1410
-mru 1410
+mtu 1390
+mru 1390
 connect-delay 5000
 EOF
 
@@ -228,9 +228,23 @@ EOF
 sysctl --system
 
 
+# 加载 L2TP 内核模块（xl2tpd 依赖，未加载会导致服务启动失败）
+for mod in l2tp_ppp l2tp_netlink; do
+    if modprobe "$mod" 2>/dev/null; then
+        grep -q "^${mod}$" /etc/modules 2>/dev/null || echo "$mod" >> /etc/modules
+    fi
+done
+
 # 启动服务
 systemctl enable xl2tpd
-systemctl restart xl2tpd
+if ! systemctl restart xl2tpd 2>/dev/null; then
+    echo "⚠️  xl2tpd 首次启动可能失败，尝试用 service 启动..."
+    service xl2tpd restart 2>/dev/null || true
+fi
+if ! systemctl is-active --quiet xl2tpd 2>/dev/null; then
+    echo "⚠️  xl2tpd 未运行。请在服务器上执行: journalctl -xeu xl2tpd.service 查看原因"
+    echo "    常见处理: modprobe l2tp_ppp && systemctl restart xl2tpd"
+fi
 
 # 输出结果
 echo ""
