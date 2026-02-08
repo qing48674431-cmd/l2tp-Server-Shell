@@ -43,6 +43,11 @@ check_dns
 # 获取用户输入
 read -rp "请输入 L2TP 用户名: " L2TP_USER
 read -rp "请输入 L2TP 密码: " L2TP_PASS
+read -rp "同时允许的 PPP 连接数（默认 1，直接回车为 1）: " PPP_MAX
+PPP_MAX=${PPP_MAX:-1}
+[[ ! "$PPP_MAX" =~ ^[0-9]+$ ]] && PPP_MAX=1
+[ "$PPP_MAX" -lt 1 ] 2>/dev/null && PPP_MAX=1
+[ "$PPP_MAX" -gt 253 ] 2>/dev/null && PPP_MAX=253
 echo ""
 read -rp "请输入内网地址段（三组数字，如 10.10.10）: " LAN_PREFIX
 if [[ "$LAN_PREFIX" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -52,7 +57,8 @@ fi
 
 LOCAL_IP="${LAN_PREFIX}.1"
 REMOTE_IP="${LAN_PREFIX}.2"
-REMOTE_IP1="${LAN_PREFIX}.20"
+# 地址池大小 = PPP_MAX，REMOTE_IP1 = 起始 + 数量 - 1
+REMOTE_IP1="${LAN_PREFIX}.$((1 + PPP_MAX))"
 PUBLIC_IP=$(get_public_ip)
 
 echo "检测到公网 IP: $PUBLIC_IP"
@@ -101,7 +107,7 @@ echo "安装必要组件..."
 apt update
 apt install -y xl2tpd ppp lsof net-tools
 
-# 配置 /etc/xl2tpd/xl2tpd.conf（max sessions 限制同一账号不能多处同时拨号）
+# 配置 /etc/xl2tpd/xl2tpd.conf（地址池大小由 PPP_MAX 决定）
 cat > /etc/xl2tpd/xl2tpd.conf <<EOF
 [global]
 ipsec saref = no
