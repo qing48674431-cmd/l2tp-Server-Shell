@@ -16,9 +16,17 @@ DEBIAN_FRONTEND=noninteractive dpkg --configure -a || {
 
 # 清理临时锁文件（若存在）
 rm -f /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock /var/cache/apt/archives/lock
-# 获取公网 IPv4
+# 获取公网 IPv4（本机非私网 → 云 metadata → 外网）
 get_public_ip() {
-    ip -4 addr | awk '/inet/ && !/127.0.0.1/ && !/inet 10|192|172\./ {print $2}' | cut -d/ -f1 | head -n1
+    local ip
+    ip=$(ip -4 addr | awk '/inet/ && !/127.0.0.1/ && !/inet 10\.|192\.168|172\.(1[6-9]|2[0-9]|3[0-1])\./ {print $2}' | cut -d/ -f1 | head -n1)
+    [[ -n "$ip" ]] && echo "$ip" && return
+    ip=$(curl -s --connect-timeout 2 -H "Metadata-Flavor: Google" "http://100.100.100.200/latest/meta-data/eipv4" 2>/dev/null || true)
+    [[ -n "$ip" ]] && echo "$ip" && return
+    ip=$(curl -s --connect-timeout 2 "http://169.254.169.254/latest/meta-data/public-ipv4" 2>/dev/null || true)
+    [[ -n "$ip" ]] && echo "$ip" && return
+    ip=$(curl -s --connect-timeout 3 icanhazip.com 2>/dev/null || curl -s --connect-timeout 3 ifconfig.me 2>/dev/null || true)
+    [[ -n "$ip" ]] && echo "$ip"
 }
 
 # 检查 DNS 可用性
@@ -36,7 +44,11 @@ check_dns
 read -rp "请输入 L2TP 用户名: " L2TP_USER
 read -rp "请输入 L2TP 密码: " L2TP_PASS
 echo ""
-read -rp "请输入内网地址段（如 10.10.10）: " LAN_PREFIX
+read -rp "请输入内网地址段（三组数字，如 10.10.10）: " LAN_PREFIX
+if [[ "$LAN_PREFIX" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    LAN_PREFIX="${LAN_PREFIX%.*}"
+    echo "已使用网段前缀: $LAN_PREFIX"
+fi
 
 LOCAL_IP="${LAN_PREFIX}.1"
 REMOTE_IP="${LAN_PREFIX}.2"
@@ -75,9 +87,13 @@ if ! command -v nft &>/dev/null; then
     apt install -y nftables
 fi
 
-# 移除其他防火墙工具，使用 nftables
+# 移除其他防火墙工具，使用 nftables（只卸载已安装的，避免包不存在报错）
 echo "移除 ufw / firewalld / iptables..."
-apt purge -y ufw firewalld iptables-persistent iptables
+for pkg in ufw firewalld iptables-persistent iptables; do
+    if dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
+        apt purge -y "$pkg" || true
+    fi
+done
 apt install -y nftables
 
 # 安装依赖
